@@ -67,4 +67,15 @@ await sharp(svg, { density: 300 }).resize(32, 32).png().toFile(`${IMG}/favicon-3
 await sharp(svg, { density: 600 }).resize(180, 180).png().toFile(`${IMG}/apple-touch-icon.png`);
 
 await writeFile(`${OUT}/robots.txt`, 'User-agent: *\nAllow: /\n');
+
+// 4. Абсолютные ссылки для превью в мессенджерах: адрес берётся из SITE_URL (Timeweb) или от Vercel
+const host = process.env.SITE_URL || (process.env.VERCEL_PROJECT_PRODUCTION_URL && `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`);
+if (host) {
+  const site = host.replace(/\/+$/, '');
+  const html = (await readFile(`${OUT}/index.html`, 'utf8')).replace(
+    '<meta property="og:image" content="assets/img/og.jpg">',
+    `<meta property="og:url" content="${site}/">\n<meta property="og:image" content="${site}/assets/img/og.jpg">\n<meta property="og:image:width" content="1200">\n<meta property="og:image:height" content="630">`
+  );
+  await writeFile(`${OUT}/index.html`, html);
+}
 console.log(`Готово: ${entries.length} фото, ${fontFiles.length * 2} файлов шрифтов → ${OUT}/`);
