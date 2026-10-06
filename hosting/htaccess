@@ -1,0 +1,104 @@
+# .htaccess сайта кафе «Удача» для обычного хостинга на Apache (Timeweb и подобные).
+# Сборка кладёт этот файл в корень сайта как .htaccess (шаблон в репозитории: hosting/htaccess).
+#
+# Каждый блок обёрнут в <IfModule>: если модуля на сервере нет, блок пропускается, а не даёт ошибку 500.
+# Важно для Timeweb (виртуальный хостинг): картинки, шрифты, css, js и txt там отдаёт nginx, до Apache такие
+# запросы не доходят, поэтому правила кэша и сжатия ниже действуют только на страницу (index.html) и sitemap.xml.
+# Редирект на https работает для страницы — этого достаточно, все остальные файлы подключаются с неё.
+
+# Не показывать список файлов в папках без index.html (assets/, css/, js/)
+Options -Indexes
+
+AddDefaultCharset utf-8
+
+# ---------- Типы файлов ----------
+<IfModule mod_mime.c>
+  AddType font/woff2 .woff2
+  AddType image/webp .webp
+  AddType image/avif .avif
+  AddType image/svg+xml .svg
+  AddType application/xml .xml
+  AddType application/manifest+json .webmanifest
+  AddCharset utf-8 .html .css .js .txt .xml .svg .webmanifest
+</IfModule>
+
+# ---------- Перенаправления ----------
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+
+  # Протокол запроса (http/https) для перенаправлений ниже
+  RewriteCond %{HTTPS} =on [OR]
+  RewriteCond %{HTTP:X-HTTPS} ^1$ [OR]
+  RewriteCond %{HTTP:X-Forwarded-Proto} ^https$ [NC]
+  RewriteRule ^ - [E=SITE_PROTO:https]
+  RewriteCond %{ENV:SITE_PROTO} !^https$
+  RewriteRule ^ - [E=SITE_PROTO:http]
+
+  # 1. http → https. Учитываются три признака https: обычный %{HTTPS}, заголовок X-HTTPS (так его передаёт
+  #    nginx на Timeweb, см. их справку «Типовые перенаправления») и X-Forwarded-Proto (другие хостинги за прокси).
+  #    Проверка Let's Encrypt (/.well-known/acme-challenge/) не перенаправляется.
+  #    Включайте сайт на домене только после выпуска SSL-сертификата, иначе браузер покажет ошибку сертификата.
+  RewriteCond %{REQUEST_URI} !^/\.well-known/acme-challenge/
+  RewriteCond %{ENV:SITE_PROTO} =http
+  RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
+
+  # 2. www ↔ без www. Домен ещё не выбран, поэтому выключено. Раскомментируйте ОДИН вариант
+  #    (основным адресом должен быть тот же, что указан в SITE_URL / set-domain.sh).
+  #    Вариант А: www.example.ru → example.ru
+  # RewriteCond %{HTTP_HOST} ^www\.(.+)$ [NC]
+  # RewriteRule ^ https://%1%{REQUEST_URI} [R=301,L]
+  #    Вариант Б: example.ru → www.example.ru
+  # RewriteCond %{HTTP_HOST} !^www\. [NC]
+  # RewriteRule ^ https://www.%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
+
+  # 3. /index.html → / (одна страница — один адрес)
+  RewriteCond %{THE_REQUEST} \s[^?\s]*/index\.html[?\s] [NC]
+  RewriteCond %{REQUEST_URI} ^(.*/)index\.html$ [NC]
+  RewriteRule ^ %{ENV:SITE_PROTO}://%{HTTP_HOST}%1 [R=301,L]
+</IfModule>
+
+# ---------- Заголовки безопасности ----------
+<IfModule mod_headers.c>
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set X-Frame-Options "SAMEORIGIN"
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+  Header always set Permissions-Policy "camera=(), microphone=(), payment=(), usb=()"
+  Header always unset X-Powered-By
+
+  # HSTS (браузер будет всегда открывать сайт по https). Включите, когда SSL заработал и вы уверены,
+  # что сайт останется на https: отменить его у посетителей быстро нельзя.
+  # Header always set Strict-Transport-Security "max-age=31536000" "expr=%{HTTP:X-HTTPS} == '1' || %{HTTPS} == 'on'"
+
+  # На Vercel черновик закрыт от поисковиков (X-Robots-Tag: noindex, nofollow в vercel.json).
+  # На настоящем домене сайт должен индексироваться, поэтому здесь это выключено.
+  # Если домен временный (тестовый) — раскомментируйте:
+  # Header always set X-Robots-Tag "noindex, nofollow"
+</IfModule>
+
+# ---------- Кэш ----------
+# Как на Vercel: файлы из assets/ (картинки, шрифты) — год, страница, стили и скрипты — всегда сверяются с сервером.
+<IfModule mod_expires.c>
+  ExpiresActive On
+  ExpiresDefault "access plus 0 seconds"
+  ExpiresByType font/woff2 "access plus 1 year"
+  ExpiresByType image/webp "access plus 1 year"
+  ExpiresByType image/avif "access plus 1 year"
+  ExpiresByType image/jpeg "access plus 1 year"
+  ExpiresByType image/png "access plus 1 year"
+  ExpiresByType image/svg+xml "access plus 1 year"
+</IfModule>
+<IfModule mod_headers.c>
+  <FilesMatch "\.(woff2|webp|avif|jpe?g|png|svg)$">
+    Header set Cache-Control "public, max-age=31536000, immutable"
+  </FilesMatch>
+  <FilesMatch "\.(html|css|js|txt|xml)$">
+    Header set Cache-Control "public, max-age=0, must-revalidate"
+  </FilesMatch>
+</IfModule>
+
+# ---------- Сжатие ----------
+<IfModule mod_deflate.c>
+  <IfModule mod_filter.c>
+    AddOutputFilterByType DEFLATE text/html text/css text/plain text/xml application/xml application/javascript text/javascript application/json application/ld+json image/svg+xml application/manifest+json
+  </IfModule>
+</IfModule>

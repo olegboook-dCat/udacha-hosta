@@ -9,6 +9,16 @@ const require = createRequire(import.meta.url);
 const OUT = 'dist';
 const IMG = `${OUT}/assets/img`;
 const FONTS = `${OUT}/assets/fonts`;
+// Адрес сайта — ЕДИНСТВЕННОЕ место, откуда берутся абсолютные ссылки (canonical, og:url, og:image, twitter:image,
+// JSON-LD, sitemap.xml, robots.txt). Порядок: переменная SITE_URL → адрес проекта на Vercel → адрес по умолчанию.
+// Свой домен: SITE_URL=https://example.ru npm run build   (кириллический домен — в punycode, xn--…)
+const DEFAULT_SITE_URL = 'https://udacha-hosta.vercel.app';
+const SITE_URL = (process.env.SITE_URL
+  || (process.env.VERCEL_PROJECT_PRODUCTION_URL && `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`)
+  || DEFAULT_SITE_URL).trim().replace(/\/+$/, '');
+if (!/^https?:\/\/[a-z0-9.-]+(:\d+)?$/i.test(SITE_URL)) {
+  throw new Error(`SITE_URL должен быть вида https://example.ru (без пути, кириллица — в punycode), получено: ${SITE_URL}`);
+}
 const UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
 
 await rm(OUT, { recursive: true, force: true });
@@ -83,17 +93,20 @@ const svg = await readFile('src/assets/img/favicon.svg');
 await sharp(svg, { density: 300 }).resize(32, 32).png().toFile(`${IMG}/favicon-32.png`);
 await sharp(svg, { density: 600 }).resize(180, 180).png().toFile(`${IMG}/apple-touch-icon.png`);
 
-await writeFile(`${OUT}/robots.txt`, 'User-agent: *\nAllow: /\n');
-
-// 4. Абсолютные ссылки для превью в мессенджерах: адрес берётся из SITE_URL (Timeweb) или от Vercel
-const host = process.env.SITE_URL || (process.env.VERCEL_PROJECT_PRODUCTION_URL && `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`);
-if (host) {
-  const site = host.replace(/\/+$/, '');
-  const html = (await readFile(`${OUT}/index.html`, 'utf8')).replace(
-    '<meta property="og:image" content="assets/img/og.jpg">',
-    `<meta property="og:url" content="${site}/">\n<meta property="og:image" content="${site}/assets/img/og.jpg">\n<meta property="og:image:width" content="1200">\n<meta property="og:image:height" content="630">`
-  );
+// 4. Адрес сайта: подставляем SITE_URL вместо __SITE_URL__ в index.html, делаем robots.txt и sitemap.xml
+{
+  const html = (await readFile(`${OUT}/index.html`, 'utf8')).replaceAll('__SITE_URL__', SITE_URL);
+  if (html.includes('__SITE_URL__')) throw new Error('В index.html остался __SITE_URL__');
   await writeFile(`${OUT}/index.html`, html);
+  await writeFile(`${OUT}/robots.txt`, `User-agent: *\nAllow: /\n\nSitemap: ${SITE_URL}/sitemap.xml\n`);
+  await writeFile(`${OUT}/sitemap.xml`,
+    '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+    + `  <url><loc>${SITE_URL}/</loc></url>\n</urlset>\n`);
 }
+
+// 5. .htaccess для обычного хостинга на Apache (Timeweb). Шаблон — hosting/htaccess.
+//    На Vercel не кладём: там он не нужен, заголовки задаёт vercel.json.
+if (!process.env.VERCEL) await cp('hosting/htaccess', `${OUT}/.htaccess`);
+
 console.log(`Первый экран: ${heroBuf ? 'локальный файл из hero/' : 'фото из Яндекса'}`);
-console.log(`Готово: ${entries.length} фото, ${fontFiles.length * 2} файлов шрифтов → ${OUT}/`);
+console.log(`Готово: ${entries.length} фото, ${fontFiles.length * 2} файлов шрифтов → ${OUT}/ (адрес сайта: ${SITE_URL})`);
