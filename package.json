@@ -1,0 +1,19 @@
+{
+  "name": "udacha-hosta",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Одностраничный сайт кафе «Удача» (Сочи, Хоста, Платановая ул., 4/4) — статический HTML/CSS/JS",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "@fontsource-variable/manrope": "5.3.0",
+    "@fontsource/caveat": "5.3.0",
+    "@fontsource/yeseva-one": "5.3.0",
+    "sharp": "0.35.5"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
